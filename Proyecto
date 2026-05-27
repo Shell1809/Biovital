@@ -1,1 +1,727 @@
 https://github.com/LaMasacreDeOswaldo01/biovital-actualizado.git
+
+$(document).ready(function() {
+    // ==================== VERIFICACIÓN INICIAL ====================
+    if (typeof APP_URL === 'undefined') {
+        console.error('ERROR: APP_URL no está definida');
+        $('#nombre_us').html('Error de configuración');
+        return;
+    }
+    
+    console.log('APP_URL:', APP_URL);
+    
+    var id_usuario = $('#id_usuario').val();
+    var edit = false;
+
+    console.log('ID Administrador desde PHP:', id_usuario);
+    
+    if (!id_usuario || id_usuario === '') {
+        console.error('ERROR: ID de administrador no encontrado');
+        $('#nombre_us').html('Error: Sesión no válida');
+        return;
+    }
+    
+    // ==================== FUNCIÓN PRINCIPAL: BUSCAR ADMINISTRADOR ====================
+   function buscar_administrador(dato) {
+    console.log('Buscando administrador con dato:', dato);
+    console.log('URL de petición:', APP_URL + '/api/administradores/buscar');
+    
+    $.ajax({
+        url: APP_URL + '/api/administradores/buscar',
+        type: 'POST',
+        data: { dato: dato },
+        dataType: 'json',
+        timeout: 10000,
+        success: function(administrador) {
+            console.log('Administrador recibido:', administrador);
+            
+            if(administrador.error) {
+                console.error('Error:', administrador.error);
+                $('#nombre_us').html('Error: ' + administrador.error);
+                return;
+            }
+            
+            // Actualizar UI con los datos
+            $('#nombre_us').html(administrador.nombre || '');
+            $('#apellidos_us').html(administrador.apellidos || '');
+            $('#edad').html(administrador.fecha_nacimiento || '');
+            $('#cedula_us').html(administrador.cedula || '');
+            $('#us_tipo').html(administrador.tipo || 'Administrador');
+            $('#telefono_us').html(administrador.telefono || '');
+            $('#correo_us').html(administrador.correo || '');
+            $('#sexo_us').html(administrador.sexo || '');
+            $('#adicional_us').html(administrador.adicional || '');
+            
+            // Mostrar dirección
+            if(administrador.direccion) {
+                $('#direccion_us').html(administrador.direccion);
+            } else {
+                $('#direccion_us').html('-');
+            }
+            
+            // ==================== ACTUALIZAR TODOS LOS AVATARES ====================
+            if(administrador.avatar) {
+                var avatarUrl = administrador.avatar;
+                // Agregar timestamp para evitar caché
+                var timestamp = new Date().getTime();
+                avatarUrl = avatarUrl + '?t=' + timestamp;
+                
+                // Actualizar avatar en el perfil (vista de edición)
+                $('#avatar1, #avatar2, #avatar3, #avatar4').attr('src', avatarUrl);
+                // Actualizar avatar en el NAV (sidebar)
+                $('#avatar_nav').attr('src', avatarUrl);
+                
+                console.log('Avatar actualizado en todas partes:', avatarUrl);
+            } else {
+                var defaultAvatar = APP_URL + '/img/avatarDES.jpg?t=' + new Date().getTime();
+                $('#avatar1, #avatar2, #avatar3, #avatar4, #avatar_nav').attr('src', defaultAvatar);
+            }
+            // ==================== FIN ACTUALIZAR AVATARES ====================
+            
+            // Cargar dirección en los campos de edición si existe
+            if (administrador.direccion && administrador.direccion !== '-') {
+                cargarDireccionEnCampos(administrador.direccion);
+            } else {
+                cargarEstados();
+            }
+            
+            console.log('Datos actualizados correctamente');
+        },
+        error: function(xhr, status, error) {
+            console.error('Error en la petición AJAX:', error);
+            console.error('Respuesta del servidor:', xhr.responseText);
+            $('#nombre_us').html('Error de conexión: ' + status);
+            cargarEstados();
+        }
+    });
+}
+    
+    // ==================== ACTUALIZAR INTERFAZ ====================
+    function actualizarUI(admin) {
+        $('#nombre_us').html(admin.nombre || '');
+        $('#apellidos_us').html(admin.apellidos || '');
+        $('#edad').html(admin.fecha_nacimiento || '');
+        $('#cedula_us').html(admin.cedula || '');
+        $('#us_tipo').html(admin.tipo || 'Administrador');
+        $('#telefono_us').html(admin.telefono || '');
+        $('#correo_us').html(admin.correo || '');
+        $('#sexo_us').html(admin.sexo || '');
+        $('#adicional_us').html(admin.adicional || '');
+        
+        if(admin.direccion) {
+            $('#direccion_us').html(admin.direccion);
+        } else {
+            $('#direccion_us').html('-');
+        }
+        
+        if(admin.avatar) {
+            $('#avatar1, #avatar2, #avatar3, #avatar4').attr('src', admin.avatar);
+        }
+        
+        // Cargar datos en los campos del formulario de edición
+        $('#telefono').val(admin.telefono || '');
+        $('#correo').val(admin.correo || '');
+        $('#sexo').val(admin.sexo || '');
+        $('#adicional').val(admin.adicional || '');
+        $('#direccion_detallada').val('');
+    }
+    
+    // ==================== FUNCIONES DE UBICACIÓN ====================
+    function cargarDireccionEnCampos(direccion_completa) {
+        console.log('Parseando dirección:', direccion_completa);
+        
+        let direccion_detallada = '';
+        let ubicacion = direccion_completa;
+        
+        if (direccion_completa.includes(' - ')) {
+            let partes = direccion_completa.split(' - ');
+            ubicacion = partes[0];
+            direccion_detallada = partes.slice(1).join(' - ');
+        }
+        
+        let ubicacion_partes = ubicacion.split(', ').filter(p => p.trim() !== '');
+        
+        $('#direccion_detallada').val(direccion_detallada);
+        
+        cargarEstadosConSeleccion(ubicacion_partes);
+    }
+
+    function cargarEstadosConSeleccion(ubicacion_partes) {
+        $.ajax({
+            url: APP_URL + '/api/ubicacion/estados',
+            type: 'POST',
+            dataType: 'json',
+            success: function(estados) {
+                let options = '<option value="">Seleccione un estado...</option>';
+                for (let estado of estados) {
+                    options += `<option value="${estado.id_estado}">${estado.estado}</option>`;
+                }
+                $('#estado').html(options).prop('disabled', false);
+                
+                if (ubicacion_partes[0] && ubicacion_partes[0] !== '') {
+                    let estado_nombre = ubicacion_partes[0].trim();
+                    $('#estado option').each(function() {
+                        if ($(this).text() === estado_nombre) {
+                            $(this).prop('selected', true);
+                            let id_estado = $(this).val();
+                            if (id_estado) {
+                                cargarCiudadesConSeleccion(id_estado, ubicacion_partes);
+                                cargarMunicipiosConSeleccion(id_estado, ubicacion_partes);
+                            }
+                        }
+                    });
+                }
+            },
+            error: function() {
+                cargarEstadosFallback();
+            }
+        });
+    }
+
+    function cargarCiudadesConSeleccion(id_estado, ubicacion_partes) {
+        if (!id_estado) return;
+        
+        $.ajax({
+            url: APP_URL + '/api/ubicacion/ciudades',
+            type: 'POST',
+            data: { id_estado: id_estado },
+            dataType: 'json',
+            success: function(ciudades) {
+                let options = '<option value="">Seleccione una ciudad...</option>';
+                for (let ciudad of ciudades) {
+                    options += `<option value="${ciudad.id_ciudad}">${ciudad.ciudad}</option>`;
+                }
+                $('#ciudad').html(options).prop('disabled', false);
+                
+                if (ubicacion_partes[1] && ubicacion_partes[1] !== '') {
+                    let ciudad_nombre = ubicacion_partes[1].trim();
+                    $('#ciudad option').each(function() {
+                        if ($(this).text() === ciudad_nombre) {
+                            $(this).prop('selected', true);
+                        }
+                    });
+                }
+            },
+            error: function() {
+                $('#ciudad').html('<option value="">Error al cargar ciudades</option>').prop('disabled', false);
+            }
+        });
+    }
+
+    function cargarMunicipiosConSeleccion(id_estado, ubicacion_partes) {
+        if (!id_estado) return;
+        
+        $.ajax({
+            url: APP_URL + '/api/ubicacion/municipios',
+            type: 'POST',
+            data: { id_estado: id_estado },
+            dataType: 'json',
+            success: function(municipios) {
+                let options = '<option value="">Seleccione un municipio...</option>';
+                for (let municipio of municipios) {
+                    options += `<option value="${municipio.id_municipio}">${municipio.municipio}</option>`;
+                }
+                $('#municipio').html(options).prop('disabled', false);
+                
+                if (ubicacion_partes[2] && ubicacion_partes[2] !== '') {
+                    let municipio_nombre = ubicacion_partes[2].trim();
+                    $('#municipio option').each(function() {
+                        if ($(this).text() === municipio_nombre) {
+                            $(this).prop('selected', true);
+                            let id_municipio = $(this).val();
+                            if (id_municipio) {
+                                cargarParroquiasConSeleccion(id_municipio, ubicacion_partes);
+                            }
+                        }
+                    });
+                }
+            },
+            error: function() {
+                $('#municipio').html('<option value="">Error al cargar municipios</option>').prop('disabled', false);
+            }
+        });
+    }
+
+    function cargarParroquiasConSeleccion(id_municipio, ubicacion_partes) {
+        if (!id_municipio) return;
+        
+        $.ajax({
+            url: APP_URL + '/api/ubicacion/parroquias',
+            type: 'POST',
+            data: { id_municipio: id_municipio },
+            dataType: 'json',
+            success: function(parroquias) {
+                let options = '<option value="">Seleccione una parroquia...</option>';
+                for (let parroquia of parroquias) {
+                    options += `<option value="${parroquia.id_parroquia}">${parroquia.parroquia}</option>`;
+                }
+                $('#parroquia').html(options).prop('disabled', false);
+                
+                if (ubicacion_partes[3] && ubicacion_partes[3] !== '') {
+                    let parroquia_nombre = ubicacion_partes[3].trim();
+                    $('#parroquia option').each(function() {
+                        if ($(this).text() === parroquia_nombre) {
+                            $(this).prop('selected', true);
+                        }
+                    });
+                }
+            },
+            error: function() {
+                $('#parroquia').html('<option value="">Error al cargar parroquias</option>').prop('disabled', false);
+            }
+        });
+    }
+
+    function cargarEstados() {
+        $.ajax({
+            url: APP_URL + '/api/ubicacion/estados',
+            type: 'POST',
+            dataType: 'json',
+            success: function(estados) {
+                let options = '<option value="">Seleccione un estado...</option>';
+                for (let estado of estados) {
+                    options += `<option value="${estado.id_estado}">${estado.estado}</option>`;
+                }
+                $('#estado').html(options).prop('disabled', false);
+            },
+            error: function() {
+                cargarEstadosFallback();
+            }
+        });
+    }
+
+    function cargarEstadosFallback() {
+        const estados = [
+            {id_estado: 1, estado: 'Amazonas'}, {id_estado: 2, estado: 'Anzoátegui'},
+            {id_estado: 3, estado: 'Apure'}, {id_estado: 4, estado: 'Aragua'},
+            {id_estado: 5, estado: 'Barinas'}, {id_estado: 6, estado: 'Bolívar'},
+            {id_estado: 7, estado: 'Carabobo'}, {id_estado: 8, estado: 'Cojedes'},
+            {id_estado: 9, estado: 'Delta Amacuro'}, {id_estado: 10, estado: 'Falcón'},
+            {id_estado: 11, estado: 'Guárico'}, {id_estado: 12, estado: 'Lara'},
+            {id_estado: 13, estado: 'Mérida'}, {id_estado: 14, estado: 'Miranda'},
+            {id_estado: 15, estado: 'Monagas'}, {id_estado: 16, estado: 'Nueva Esparta'},
+            {id_estado: 17, estado: 'Portuguesa'}, {id_estado: 18, estado: 'Sucre'},
+            {id_estado: 19, estado: 'Táchira'}, {id_estado: 20, estado: 'Trujillo'},
+            {id_estado: 21, estado: 'La Guaira'}, {id_estado: 22, estado: 'Yaracuy'},
+            {id_estado: 23, estado: 'Zulia'}, {id_estado: 24, estado: 'Distrito Capital'}
+        ];
+        let options = '<option value="">Seleccione un estado...</option>';
+        for (let estado of estados) {
+            options += `<option value="${estado.id_estado}">${estado.estado}</option>`;
+        }
+        $('#estado').html(options).prop('disabled', false);
+    }
+
+    function cargarCiudades(id_estado) {
+        if (!id_estado) {
+            $('#ciudad').html('<option value="">Seleccione un estado primero...</option>').prop('disabled', true);
+            return;
+        }
+        
+        $('#ciudad').html('<option value="">Cargando ciudades...</option>').prop('disabled', false);
+        
+        $.ajax({
+            url: APP_URL + '/api/ubicacion/ciudades',
+            type: 'POST',
+            data: { id_estado: id_estado },
+            dataType: 'json',
+            success: function(ciudades) {
+                let options = '<option value="">Seleccione una ciudad...</option>';
+                for (let ciudad of ciudades) {
+                    options += `<option value="${ciudad.id_ciudad}">${ciudad.ciudad}</option>`;
+                }
+                $('#ciudad').html(options).prop('disabled', false);
+            },
+            error: function() {
+                $('#ciudad').html('<option value="">Error al cargar ciudades</option>').prop('disabled', false);
+            }
+        });
+    }
+
+    function cargarMunicipios(id_estado) {
+        if (!id_estado) {
+            $('#municipio').html('<option value="">Seleccione un estado primero...</option>').prop('disabled', true);
+            $('#parroquia').html('<option value="">Seleccione un municipio primero...</option>').prop('disabled', true);
+            return;
+        }
+        
+        $('#municipio').html('<option value="">Cargando municipios...</option>').prop('disabled', false);
+        
+        $.ajax({
+            url: APP_URL + '/api/ubicacion/municipios',
+            type: 'POST',
+            data: { id_estado: id_estado },
+            dataType: 'json',
+            success: function(municipios) {
+                let options = '<option value="">Seleccione un municipio...</option>';
+                for (let municipio of municipios) {
+                    options += `<option value="${municipio.id_municipio}">${municipio.municipio}</option>`;
+                }
+                $('#municipio').html(options).prop('disabled', false);
+                $('#parroquia').html('<option value="">Seleccione un municipio primero...</option>').prop('disabled', true);
+            },
+            error: function() {
+                $('#municipio').html('<option value="">Error al cargar municipios</option>').prop('disabled', false);
+            }
+        });
+    }
+
+    function cargarParroquias(id_municipio) {
+        if (!id_municipio) {
+            $('#parroquia').html('<option value="">Seleccione un municipio primero...</option>').prop('disabled', true);
+            return;
+        }
+        
+        $('#parroquia').html('<option value="">Cargando parroquias...</option>').prop('disabled', false);
+        
+        $.ajax({
+            url: APP_URL + '/api/ubicacion/parroquias',
+            type: 'POST',
+            data: { id_municipio: id_municipio },
+            dataType: 'json',
+            success: function(parroquias) {
+                let options = '<option value="">Seleccione una parroquia...</option>';
+                for (let parroquia of parroquias) {
+                    options += `<option value="${parroquia.id_parroquia}">${parroquia.parroquia}</option>`;
+                }
+                $('#parroquia').html(options).prop('disabled', false);
+            },
+            error: function() {
+                $('#parroquia').html('<option value="">Error al cargar parroquias</option>').prop('disabled', false);
+            }
+        });
+    }
+
+    // ==================== EVENTOS DE UBICACIÓN ====================
+    $(document).on('change', '#estado', function() {
+        let id_estado = $(this).val();
+        if (id_estado) {
+            cargarCiudades(id_estado);
+            cargarMunicipios(id_estado);
+        } else {
+            $('#ciudad').html('<option value="">Seleccione un estado primero...</option>').prop('disabled', true);
+            $('#municipio').html('<option value="">Seleccione un estado primero...</option>').prop('disabled', true);
+            $('#parroquia').html('<option value="">Seleccione un municipio primero...</option>').prop('disabled', true);
+        }
+    });
+
+    $(document).on('change', '#municipio', function() {
+        let id_municipio = $(this).val();
+        if (id_municipio) {
+            cargarParroquias(id_municipio);
+        } else {
+            $('#parroquia').html('<option value="">Seleccione un municipio primero...</option>').prop('disabled', true);
+        }
+    });
+
+    // ==================== BOTÓN EDITAR ====================
+    $(document).on('click', '.edit', function(e) {
+        e.preventDefault();
+        edit = true;
+        
+        console.log('Editando administrador ID:', id_usuario);
+        
+        var $btn = $(this);
+        var originalText = $btn.html();
+        $btn.html('<i class="fas fa-spinner fa-spin"></i> Cargando...');
+        
+        $.ajax({
+            url: APP_URL + '/api/administradores/capturar-datos',
+            type: 'POST',
+            data: { id_administrador: id_usuario },
+            dataType: 'json',
+            success: function(administrador) {
+                console.log('Datos a editar:', administrador);
+                
+                if(administrador.error) {
+                    alert('Error: ' + administrador.error);
+                    return;
+                }
+                
+                // Cargar datos en los campos
+                $('#telefono').val(administrador.telefono || '');
+                $('#correo').val(administrador.correo || '');
+                $('#sexo').val(administrador.sexo || '');
+                $('#adicional').val(administrador.adicional || '');
+                
+                // Habilitar campos de edición
+                $('#telefono, #correo, #sexo, #adicional, #estado, #ciudad, #municipio, #parroquia, #direccion_detallada').prop('disabled', false);
+                
+                // Cambiar estilo del botón guardar
+                $('.btn-outline-success')
+                    .removeClass('btn-outline-success')
+                    .addClass('btn-success')
+                    .prop('disabled', false);
+                
+                $('#editado').show(1000);
+                setTimeout(function() { $('#editado').hide(2000); }, 2000);
+            },
+            error: function(xhr, status, error) {
+                console.error('Error al capturar datos:', error);
+                alert('Error al cargar datos para edición: ' + status);
+            },
+            complete: function() {
+                $btn.html(originalText);
+            }
+        });
+    });
+    
+    // ==================== FORMULARIO DE EDICIÓN - GUARDAR CAMBIOS ====================
+    console.log('Registrando evento submit del formulario...');
+    
+    $('#form-usuario').off('submit').on('submit', function(e) {
+        console.log('=== EVENTO SUBMIT DISPARADO ===');
+        e.preventDefault();
+        
+        console.log('Variable edit:', edit);
+        
+        if (!edit) {
+            alert('Primero haga clic en "Editar"');
+            return false;
+        }
+        
+        console.log('Continuando con el guardado...');
+        
+        // Construir dirección completa
+        var estado_nombre = $('#estado option:selected').text();
+        var ciudad_nombre = $('#ciudad option:selected').text();
+        var municipio_nombre = $('#municipio option:selected').text();
+        var parroquia_nombre = $('#parroquia option:selected').text();
+        var direccion_detallada = $('#direccion_detallada').val();
+        
+        console.log('Estado seleccionado:', estado_nombre);
+        console.log('Ciudad seleccionada:', ciudad_nombre);
+        console.log('Municipio seleccionado:', municipio_nombre);
+        console.log('Parroquia seleccionada:', parroquia_nombre);
+        console.log('Dirección detallada:', direccion_detallada);
+        
+        var direccion_completa = '';
+        
+        if (estado_nombre && estado_nombre !== 'Seleccione un estado...' && estado_nombre !== '') {
+            direccion_completa = estado_nombre;
+        }
+        if (ciudad_nombre && ciudad_nombre !== 'Seleccione una ciudad...' && ciudad_nombre !== '' && ciudad_nombre !== 'Cargando ciudades...') {
+            direccion_completa += (direccion_completa ? ', ' : '') + ciudad_nombre;
+        }
+        if (municipio_nombre && municipio_nombre !== 'Seleccione un municipio...' && municipio_nombre !== '' && municipio_nombre !== 'Cargando municipios...') {
+            direccion_completa += (direccion_completa ? ', ' : '') + municipio_nombre;
+        }
+        if (parroquia_nombre && parroquia_nombre !== 'Seleccione una parroquia...' && parroquia_nombre !== '' && parroquia_nombre !== 'Cargando parroquias...') {
+            direccion_completa += (direccion_completa ? ', ' : '') + parroquia_nombre;
+        }
+        if (direccion_detallada && direccion_detallada !== '') {
+            direccion_completa += (direccion_completa ? ' - ' : '') + direccion_detallada;
+        }
+        
+        var telefono = $('#telefono').val();
+        var correo = $('#correo').val();
+        var sexo = $('#sexo').val();
+        var adicional = $('#adicional').val();
+        
+        console.log('=== ENVIANDO DATOS ===');
+        console.log('ID:', id_usuario);
+        console.log('Dirección completa:', direccion_completa);
+        console.log('Teléfono:', telefono);
+        console.log('Correo:', correo);
+        console.log('Sexo:', sexo);
+        console.log('Adicional:', adicional);
+        
+        // Deshabilitar botón para evitar doble envío
+        var $btn = $(this).find('button[type="submit"]');
+        var originalText = $btn.html();
+        $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Guardando...');
+        
+        $.ajax({
+            url: APP_URL + '/api/administradores/editar',
+            type: 'POST',
+            data: {
+                id_administrador: id_usuario,
+                telefono: telefono,
+                direccion: direccion_completa,
+                correo: correo,
+                sexo: sexo,
+                adicional: adicional
+            },
+            dataType: 'json',
+            success: function(response) {
+                console.log('Respuesta del servidor:', response);
+                
+                if (response.success) {
+                    $('#editado').show(1000);
+                    setTimeout(function() { 
+                        $('#editado').hide(2000); 
+                    }, 3000);
+                    
+                    // Resetear estado de edición
+                    edit = false;
+                    
+                    // Deshabilitar campos después de guardar
+                    $('#telefono, #correo, #sexo, #adicional, #estado, #ciudad, #municipio, #parroquia, #direccion_detallada').prop('disabled', true);
+                    
+                    // Restaurar estilo del botón guardar
+                    $('.btn-success')
+                        .removeClass('btn-success')
+                        .addClass('btn-outline-success')
+                        .prop('disabled', true);
+                    
+                    // Recargar datos del administrador
+                    buscar_administrador(id_usuario);
+                    
+                    alert('¡Datos actualizados correctamente!');
+                } else {
+                    $('#noeditado').show(1000);
+                    setTimeout(function() { 
+                        $('#noeditado').hide(2000); 
+                    }, 3000);
+                    alert(response.error || 'Error al guardar los cambios');
+                }
+            },
+            error: function(xhr, status, error) {
+                console.error('Error en AJAX:', error);
+                console.error('Respuesta del servidor:', xhr.responseText);
+                $('#noeditado').show(1000);
+                setTimeout(function() { 
+                    $('#noeditado').hide(2000); 
+                }, 3000);
+                alert('Error de conexión: ' + status + ' - ' + error);
+            },
+            complete: function() {
+                $btn.prop('disabled', false).html(originalText);
+            }
+        });
+        
+        return false;
+    });
+    
+    console.log('Evento submit registrado correctamente');
+    
+    // ==================== CAMBIAR CONTRASEÑA ====================
+    $('#form-pass').submit(function(e) {
+        e.preventDefault();
+        
+        var oldpass = $('#oldpass').val();
+        var newpass = $('#newpass').val();
+        
+        if (newpass.length < 6) {
+            alert('La nueva contraseña debe tener al menos 6 caracteres');
+            return false;
+        }
+        
+        var $btn = $(this).find('button[type="submit"]');
+        var originalText = $btn.html();
+        $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i>');
+        
+        $.ajax({
+            url: APP_URL + '/api/administradores/cambiar-password',
+            type: 'POST',
+            data: {
+                id_administrador: id_usuario,
+                oldpass: oldpass,
+                newpass: newpass
+            },
+            dataType: 'json',
+            success: function(response) {
+                console.log('Respuesta cambio contraseña:', response);
+                
+                if (response.resultado == 'update') {
+                    $('#update').show(1000);
+                    setTimeout(function() { 
+                        $('#update').hide(2000); 
+                        $('#cambiocontra').modal('hide');
+                    }, 2000);
+                    $('#form-pass').trigger('reset');
+                } else {
+                    $('#noupdate').show(1000);
+                    setTimeout(function() { 
+                        $('#noupdate').hide(2000); 
+                    }, 2000);
+                }
+            },
+            error: function(xhr, status, error) {
+                console.error('Error al cambiar contraseña:', error);
+                alert('Error de conexión: ' + status);
+            },
+            complete: function() {
+                $btn.prop('disabled', false).html(originalText);
+            }
+        });
+    });
+    
+    // ==================== CAMBIAR FOTO ====================
+  
+$('#form-photo').submit(function(e) {
+    e.preventDefault();
+    
+    var fileInput = $(this).find('input[type="file"]')[0];
+    if (!fileInput.files || fileInput.files.length === 0) {
+        alert('Por favor seleccione una imagen');
+        return;
+    }
+    
+    var formData = new FormData(this);
+    formData.append('id_administrador', id_usuario);
+    
+    var $btn = $(this).find('button[type="submit"]');
+    var originalText = $btn.html();
+    $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Subiendo...');
+    
+    $.ajax({
+        url: APP_URL + '/api/administradores/cambiar-foto',
+        type: 'POST',
+        data: formData,
+        cache: false,
+        processData: false,
+        contentType: false,
+        dataType: 'json',
+        success: function(response) {
+            console.log('Respuesta cambio foto:', response);
+            
+            if (response.alert === 'edit') {
+                var timestamp = new Date().getTime();
+                var nuevaRuta = response.ruta + '?t=' + timestamp;
+                
+                console.log('Nueva ruta de avatar:', nuevaRuta);
+                
+                // ==================== ACTUALIZAR TODOS LOS AVATARES ====================
+                // Actualizar imágenes en el formulario de edición
+                $('#avatar1, #avatar2, #avatar3, #avatar4').attr('src', nuevaRuta);
+                // Actualizar imagen en el NAV (sidebar)
+                $('#avatar_nav').attr('src', nuevaRuta);
+                // ==================== FIN ACTUALIZAR AVATARES ====================
+                
+                $('#edit').show(1000);
+                setTimeout(function() { 
+                    $('#edit').hide(2000); 
+                }, 3000);
+                
+                $('#form-photo').trigger('reset');
+                
+                setTimeout(function() { 
+                    $('#cambiophoto').modal('hide'); 
+                }, 1500);
+                
+            } else {
+                $('#noedit').show(1000);
+                setTimeout(function() { 
+                    $('#noedit').hide(2000); 
+                }, 3000);
+                alert(response.error || 'Error al cambiar la foto');
+            }
+        },
+        error: function(xhr, status, error) {
+            console.error('Error al cambiar foto:', error);
+            $('#noedit').show(1000);
+            setTimeout(function() { 
+                $('#noedit').hide(2000); 
+            }, 3000);
+            alert('Error al cambiar la foto. Verifique el tipo de archivo (JPG, PNG, GIF)');
+        },
+        complete: function() {
+            $btn.prop('disabled', false).html(originalText);
+        }
+    });
+});
+    
+    // ==================== INICIALIZAR ====================
+    buscar_administrador(id_usuario);
+});
